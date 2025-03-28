@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         tampermonkey折扣自动计算助手 v1.7
+// @name         tampermonkey折扣自动计算助手 v1.8
 // @namespace    https://github.com/ZFENGTING
 // @version      1.8
 // @description  支持普通页和变体页折扣结构，稳定处理所有商品行
