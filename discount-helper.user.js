@@ -12,7 +12,9 @@
 
 (function () {
     'use strict';
+
     waitForPageReady();
+
     function waitForPageReady() {
         const waitForAllButton = () => {
             const allBtn = document.querySelector('a[title="全部"]');
@@ -34,14 +36,14 @@
         };
 
         const waitForTotalAmount = () => {
-            const totalElem = document.querySelector('#document_sum_show .document_sum_font') ||
+            const totalElem = document.querySelector('#document_sum_show .document_sum_font') || 
                              document.querySelector('#document_sum_show i.document_sum_font');
-
+            
             if (totalElem && totalElem.textContent) {
                 console.log('✅ 商品数据和总金额加载完成，初始化浮窗');
                 initDiscountScript();
             } else {
-                console.log('⏳ 等待总金额加载....');
+                console.log('⏳ 等待总金额加载...');
                 setTimeout(waitForTotalAmount, 300);
             }
         };
@@ -50,9 +52,9 @@
     }
 
     function initDiscountScript() {
-        const totalElem = document.querySelector('#document_sum_show .document_sum_font') ||
+        const totalElem = document.querySelector('#document_sum_show .document_sum_font') || 
                          document.querySelector('#document_sum_show i.document_sum_font');
-
+        
         if (!totalElem || !totalElem.textContent) {
             console.error('❌ 无法获取总金额元素');
             return;
@@ -90,6 +92,7 @@
             <div><b>💬 备注内容：</b><div style="white-space:pre-wrap;margin:4px 0 10px 0;">${remarkText}</div></div>
             <b>💰 订单金额：</b>${totalAmount.toFixed(2)} EUR，
             推荐折扣：<input type="number" id="custom_discount" value="${amountDiscount}" min="0" max="100" step="0.5" style="width:50px;text-align:right">%<br/><br/>
+            <div id="last_result" style="margin-bottom:10px;font-size:12px;color:#666;"></div>
             <label><input type="checkbox" id="amount_flag" ${amountChecked}> 应用金额折扣${warningText}</label><br/>
             <label><input type="checkbox" id="presale_flag"> 应用预售订单折扣</label><br/>
             <label><input type="checkbox" id="cash_flag"> 应用现金支付折扣</label><br/><br/>
@@ -100,14 +103,26 @@
         document.body.appendChild(panel);
         makeDraggable(panel);
 
+        // 添加更新上次处理结果的函数
+        function updateLastResult(updated, skipped, total) {
+            const lastResult = document.getElementById('last_result');
+            if (lastResult) {
+                lastResult.innerHTML = `📊 上次处理结果：
+- 修改：${updated} 个
+- 跳过：${skipped} 个
+- 未改：${total - updated - skipped} 个
+- 总数：${total} 个`;
+            }
+        }
+
         document.getElementById('apply_discount_btn').addEventListener('click', async () => {
             const btn = document.getElementById('apply_discount_btn');
             const progressText = document.getElementById('progress_text');
-
+            
             // 禁用按钮，修改文字
             btn.disabled = true;
             btn.textContent = '处理中...';
-
+            
             const useAmount = document.getElementById('amount_flag')?.checked;
             const usePresale = document.getElementById('presale_flag')?.checked;
             const useCash = document.getElementById('cash_flag')?.checked;
@@ -116,23 +131,23 @@
             const rows = Array.from(document.querySelectorAll('tr'))
                 .filter(row => /^item_hidden_\d+$/.test(row.id));
 
-            let updated = 0; // 实际修改的商品数量
-            let skipped = 0; // 跳过的商品数量
-            let processed = 0;// 已处理数量
+            let updated = 0;  // 实际修改的商品数量
+            let skipped = 0;  // 跳过的商品数量
+            let processed = 0; // 已处理数量
 
             for (const row of rows) {
                 processed++;
                 progressText.textContent = `⏳ 正在处理第 ${processed}/${rows.length} 个商品...`;
-
+                
                 const productCode = row.querySelector('input[name^="product_model"]')?.value || '';
-
+                
                 // 修改描述文本的获取逻辑
                 let descText = '';
                 // 先尝试获取 input
                 const descInput = row.querySelector('input[name^="product_description"]');
                 // 如果没有 input，尝试获取 td 下的所有 a 标签
                 const descLinks = row.querySelectorAll('td a');
-
+                
                 if (descInput) {
                     descText = descInput.value?.trim() || '';
                 } else {
@@ -149,8 +164,8 @@
                 const isForeign = productCode.startsWith('IT') || productCode.startsWith('ES');
                 const isExcluded = descText.includes('特价') || descText.includes('无折扣');
                 const isCrdSet = productCode.includes('CRDSET');
-                const skip = isExcluded ||
-                           (isForeign && !useCash) ||
+                const skip = isExcluded || 
+                           (isForeign && !useCash) || 
                            (isCrdSet && useAmount);
 
                 // 尝试抓取折扣位置
@@ -215,11 +230,14 @@
             btn.textContent = '应用折扣';
             progressText.textContent = `✅ 处理完成！`;
 
+            // 更新上次处理结果
+            updateLastResult(updated, skipped, rows.length);
+
             alert(`🎉 折扣应用完成：
 - 实际修改：${updated} 个商品
 - 跳过处理：${skipped} 个商品（特价/无折扣/IT/ES商品）
 - 未修改：${rows.length - updated - skipped} 个商品（已有折扣）`);
-
+            
             // 3秒后清除进度文本
             setTimeout(() => {
                 progressText.textContent = '';
@@ -230,18 +248,18 @@
     function setDiscountValue(cell, value) {
         return new Promise((resolve) => {
             const val = parseFloat(value).toFixed(2);
-
+            
             if (cell.tagName === 'INPUT') {
                 cell.value = val;
                 // 使用 setTimeout 确保事件按序触发
                 setTimeout(() => {
                     const changeEvent = new Event('change', { bubbles: true });
                     cell.dispatchEvent(changeEvent);
-
+                    
                     setTimeout(() => {
                         const inputEvent = new Event('input', { bubbles: true });
                         cell.dispatchEvent(inputEvent);
-
+                        
                         setTimeout(() => {
                             const blurEvent = new FocusEvent('blur', { bubbles: true });
                             cell.dispatchEvent(blurEvent);
