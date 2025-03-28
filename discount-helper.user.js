@@ -41,7 +41,7 @@
                 console.log('✅ 商品数据和总金额加载完成，初始化浮窗');
                 initDiscountScript();
             } else {
-                console.log('⏳ 等待总金额加载...');
+                console.log('⏳ 等待总金额加载....');
                 setTimeout(waitForTotalAmount, 300);
             }
         };
