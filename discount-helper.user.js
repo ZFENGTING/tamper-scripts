@@ -11,9 +11,7 @@
 
 (function () {
     'use strict';
-
     waitForPageReady();
-
     function waitForPageReady() {
         const waitForAllButton = () => {
             const allBtn = document.querySelector('a[title="全部"]');
