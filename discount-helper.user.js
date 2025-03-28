@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         tampermonkey折扣自动计算助手 v1.7
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/ZFENGTING
 // @version      1.7
 // @description  支持普通页和变体页折扣结构，稳定处理所有商品行
 // @match        http://ns71.bosonapp.com/boson/module/sale/sale_reg.php*
+// @updateURL    https://raw.githubusercontent.com/ZFENGTING/tamper-scripts/main/discount-helper.user.js
+// @downloadURL  https://raw.githubusercontent.com/ZFENGTING/tamper-scripts/main/discount-helper.user.js
 // @grant        none
 // ==/UserScript==
 
@@ -135,7 +137,10 @@
 
                 const isForeign = productCode.startsWith('IT') || productCode.startsWith('ES');
                 const isExcluded = descText.includes('特价') || descText.includes('无折扣');
-                const skip = isForeign || isExcluded;
+                const isCrdSet = productCode.includes('CRDSET');
+                const skip = isExcluded || 
+                           (isForeign && !useCash) || 
+                           (isCrdSet && useAmount);
 
                 // 尝试抓取折扣位置
                 let amountCell, presaleCell, cashCell;
@@ -164,7 +169,7 @@
                 let rowUpdated = false; // 标记该行是否有修改
 
                 // 应用折扣值
-                if (useAmount) {
+                if (useAmount && !isCrdSet) {
                     const currentDiscount = getDiscountValue(amountCell);
                     if (currentDiscount === 0) {
                         setDiscountValue(amountCell, customDiscount);
@@ -181,7 +186,8 @@
                 if (useCash) {
                     const currentCash = getDiscountValue(cashCell);
                     if (currentCash === 0) {
-                        setDiscountValue(cashCell, 5);
+                        const cashDiscountRate = isForeign ? 3 : 5;
+                        setDiscountValue(cashCell, cashDiscountRate);
                         rowUpdated = true;
                     }
                 }
