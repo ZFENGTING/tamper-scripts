@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         tampermonkey折扣自动计算助手 v1.7
 // @namespace    https://github.com/ZFENGTING
-// @version      1.7
+// @version      1.8
 // @description  支持普通页和变体页折扣结构，稳定处理所有商品行
 // @match        http://ns71.bosonapp.com/boson/module/sale/sale_reg.php*
 // @updateURL    https://raw.githubusercontent.com/ZFENGTING/tamper-scripts/main/discount-helper.user.js
