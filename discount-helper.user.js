@@ -35,9 +35,9 @@
         };
 
         const waitForTotalAmount = () => {
-            const totalElem = document.querySelector('#document_sum_show .document_sum_font') || 
+            const totalElem = document.querySelector('#document_sum_show .document_sum_font') ||
                              document.querySelector('#document_sum_show i.document_sum_font');
-            
+
             if (totalElem && totalElem.textContent) {
                 console.log('✅ 商品数据和总金额加载完成，初始化浮窗');
                 initDiscountScript();
@@ -51,9 +51,9 @@
     }
 
     function initDiscountScript() {
-        const totalElem = document.querySelector('#document_sum_show .document_sum_font') || 
+        const totalElem = document.querySelector('#document_sum_show .document_sum_font') ||
                          document.querySelector('#document_sum_show i.document_sum_font');
-        
+
         if (!totalElem || !totalElem.textContent) {
             console.error('❌ 无法获取总金额元素');
             return;
@@ -95,12 +95,20 @@
             <label><input type="checkbox" id="presale_flag"> 应用预售订单折扣</label><br/>
             <label><input type="checkbox" id="cash_flag"> 应用现金支付折扣</label><br/><br/>
             <button id="apply_discount_btn">应用折扣</button>
+            <div id="progress_text" style="margin-top:8px;color:#666;font-size:13px;"></div>
         `;
 
         document.body.appendChild(panel);
         makeDraggable(panel);
 
-        document.getElementById('apply_discount_btn').addEventListener('click', () => {
+        document.getElementById('apply_discount_btn').addEventListener('click', async () => {
+            const btn = document.getElementById('apply_discount_btn');
+            const progressText = document.getElementById('progress_text');
+
+            // 禁用按钮，修改文字
+            btn.disabled = true;
+            btn.textContent = '处理中...';
+
             const useAmount = document.getElementById('amount_flag')?.checked;
             const usePresale = document.getElementById('presale_flag')?.checked;
             const useCash = document.getElementById('cash_flag')?.checked;
@@ -109,19 +117,23 @@
             const rows = Array.from(document.querySelectorAll('tr'))
                 .filter(row => /^item_hidden_\d+$/.test(row.id));
 
-            let updated = 0;  // 实际修改的商品数量
-            let skipped = 0;  // 跳过的商品数量
+            let updated = 0; // 实际修改的商品数量
+            let skipped = 0; // 跳过的商品数量
+            let processed = 0;// 已处理数量
 
-            rows.forEach((row) => {
+            for (const row of rows) {
+                processed++;
+                progressText.textContent = `⏳ 正在处理第 ${processed}/${rows.length} 个商品...`;
+
                 const productCode = row.querySelector('input[name^="product_model"]')?.value || '';
-                
+
                 // 修改描述文本的获取逻辑
                 let descText = '';
                 // 先尝试获取 input
                 const descInput = row.querySelector('input[name^="product_description"]');
                 // 如果没有 input，尝试获取 td 下的所有 a 标签
                 const descLinks = row.querySelectorAll('td a');
-                
+
                 if (descInput) {
                     descText = descInput.value?.trim() || '';
                 } else {
@@ -138,8 +150,8 @@
                 const isForeign = productCode.startsWith('IT') || productCode.startsWith('ES');
                 const isExcluded = descText.includes('特价') || descText.includes('无折扣');
                 const isCrdSet = productCode.includes('CRDSET');
-                const skip = isExcluded || 
-                           (isForeign && !useCash) || 
+                const skip = isExcluded ||
+                           (isForeign && !useCash) ||
                            (isCrdSet && useAmount);
 
                 // 尝试抓取折扣位置
@@ -163,73 +175,93 @@
 
                 if (skip) {
                     skipped++;
-                    return;
+                    continue;
                 }
 
-                let rowUpdated = false; // 标记该行是否有修改
+                let hasUpdates = false;
 
                 // 应用折扣值
                 if (useAmount && !isCrdSet) {
                     const currentDiscount = getDiscountValue(amountCell);
                     if (currentDiscount === 0) {
-                        setDiscountValue(amountCell, customDiscount);
-                        rowUpdated = true;
+                        await setDiscountValue(amountCell, customDiscount);
+                        hasUpdates = true;
                     }
                 }
                 if (usePresale) {
                     const currentPresale = getDiscountValue(presaleCell);
                     if (currentPresale === 0) {
-                        setDiscountValue(presaleCell, 5);
-                        rowUpdated = true;
+                        await setDiscountValue(presaleCell, 5);
+                        hasUpdates = true;
                     }
                 }
                 if (useCash) {
                     const currentCash = getDiscountValue(cashCell);
                     if (currentCash === 0) {
                         const cashDiscountRate = isForeign ? 3 : 5;
-                        setDiscountValue(cashCell, cashDiscountRate);
-                        rowUpdated = true;
+                        await setDiscountValue(cashCell, cashDiscountRate);
+                        hasUpdates = true;
                     }
                 }
 
-                // 只有实际发生修改才计数
-                if (rowUpdated) {
+                if (hasUpdates) {
                     updated++;
+                    progressText.textContent = `⏳ 正在处理第 ${processed}/${rows.length} 个商品...已修改 ${updated} 个`;
+                    await new Promise(resolve => setTimeout(resolve, 10));
                 }
-            });
+            }
+
+            // 恢复按钮状态
+            btn.disabled = false;
+            btn.textContent = '应用折扣';
+            progressText.textContent = `✅ 处理完成！`;
 
             alert(`🎉 折扣应用完成：
 - 实际修改：${updated} 个商品
 - 跳过处理：${skipped} 个商品（特价/无折扣/IT/ES商品）
 - 未修改：${rows.length - updated - skipped} 个商品（已有折扣）`);
+
+            // 3秒后清除进度文本
+            setTimeout(() => {
+                progressText.textContent = '';
+            }, 3000);
         });
     }
 
     function setDiscountValue(cell, value) {
-        const val = parseFloat(value).toFixed(2);
-        if (cell.tagName === 'INPUT') {
-            cell.value = val;
-            // 触发 change 事件
-            const changeEvent = new Event('change', { bubbles: true });
-            cell.dispatchEvent(changeEvent);
-            
-            // 触发 input 事件
-            const inputEvent = new Event('input', { bubbles: true });
-            cell.dispatchEvent(inputEvent);
-            
-            // 触发 blur 事件（失去焦点时通常会触发提交）
-            const blurEvent = new FocusEvent('blur', { bubbles: true });
-            cell.dispatchEvent(blurEvent);
-        } else {
-            cell.textContent = val;
-            // 如果是td元素，触发点击事件
-            const clickEvent = new MouseEvent('click', {
-                bubbles: true,
-                cancelable: true,
-                view: window
-            });
-            cell.dispatchEvent(clickEvent);
-        }
+        return new Promise((resolve) => {
+            const val = parseFloat(value).toFixed(2);
+
+            if (cell.tagName === 'INPUT') {
+                cell.value = val;
+                // 使用 setTimeout 确保事件按序触发
+                setTimeout(() => {
+                    const changeEvent = new Event('change', { bubbles: true });
+                    cell.dispatchEvent(changeEvent);
+
+                    setTimeout(() => {
+                        const inputEvent = new Event('input', { bubbles: true });
+                        cell.dispatchEvent(inputEvent);
+
+                        setTimeout(() => {
+                            const blurEvent = new FocusEvent('blur', { bubbles: true });
+                            cell.dispatchEvent(blurEvent);
+                            resolve();
+                        }, 50);
+                    }, 50);
+                }, 50);
+            } else {
+                cell.textContent = val;
+                // 如果是td元素，触发点击事件
+                const clickEvent = new MouseEvent('click', {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window
+                });
+                cell.dispatchEvent(clickEvent);
+                setTimeout(resolve, 50);
+            }
+        });
     }
 
     function makeDraggable(el) {
