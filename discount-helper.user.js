@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         tampermonkey折扣自动计算助手 v1.8.20250328
+// @name         折扣自动计算助手 v1.8.20250328
 // @copyright    2025, ZFT (https://github.com/ZFENGTING)
 // @namespace    https://github.com/ZFENGTING
 // @version      v1.8.20250328
