@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         折扣自动计算助手 v2.0.20250328
+// @name         折扣自动计算助手 v2.0.20250331
 // @copyright    2025, ZFT (https://github.com/ZFENGTING)
 // @namespace    https://github.com/ZFENGTING
-// @version      v2.0.20250328
+// @version      v2.0.20250331
 // @description  支持普通页和变体页折扣结构，稳定处理所有商品行
 // @match        http://ns71.bosonapp.com/boson/module/sale/sale_reg.php*
 // @updateURL    https://raw.githubusercontent.com/ZFENGTING/tamper-scripts/main/discount-helper.user.js
@@ -161,9 +161,14 @@
                 // 调试输出
                 console.log('商品描述文本:', descText);
 
+                // 检查商品代码前缀
+                const isSpecialPrefix = /^(BS|ITG|HI|FM|GU)/.test(productCode);
                 const isForeign = productCode.startsWith('IT') || productCode.startsWith('ES');
-                const isExcluded = descText.includes('特价') || descText.includes('无折扣');
+                const isExcluded = descText.includes('特价');
+                const isNoDiscount = descText.includes('无折扣');
                 const isCrdSet = productCode.includes('CRDSET');
+                
+                // 跳过条件更新
                 const skip = isExcluded || 
                            (isForeign && !useCash) || 
                            (isCrdSet && useAmount);
@@ -195,14 +200,14 @@
                 let hasUpdates = false;
 
                 // 应用折扣值
-                if (useAmount && !isCrdSet) {
+                if (useAmount && !isCrdSet && !isSpecialPrefix) {
                     const currentDiscount = getDiscountValue(amountCell);
                     if (currentDiscount === 0) {
                         await setDiscountValue(amountCell, customDiscount);
                         hasUpdates = true;
                     }
                 }
-                if (usePresale) {
+                if (usePresale && !isSpecialPrefix) {
                     const currentPresale = getDiscountValue(presaleCell);
                     if (currentPresale === 0) {
                         await setDiscountValue(presaleCell, 5);
@@ -212,7 +217,16 @@
                 if (useCash) {
                     const currentCash = getDiscountValue(cashCell);
                     if (currentCash === 0) {
-                        const cashDiscountRate = isForeign ? 3 : 5;
+                        let cashDiscountRate = 0;
+                        if (isNoDiscount) {
+                            cashDiscountRate = 3;
+                        } else if (isSpecialPrefix) {
+                            cashDiscountRate = 5;
+                        } else if (isForeign) {
+                            cashDiscountRate = 3;
+                        } else {
+                            cashDiscountRate = 5;
+                        }
                         await setDiscountValue(cashCell, cashDiscountRate);
                         hasUpdates = true;
                     }
