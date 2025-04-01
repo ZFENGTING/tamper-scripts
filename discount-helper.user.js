@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         折扣自动计算助手 v2.0.20250401.1
+// @name         折扣自动计算助手 v2.0.20250401
 // @copyright    2025, ZFT (https://github.com/ZFENGTING)
 // @namespace    https://github.com/ZFENGTING
-// @version      v2.0.20250401.1
+// @version      v2.0.20250401
 // @description  支持普通页和变体页折扣结构，稳定处理所有商品行
 // @match        http://ns71.bosonapp.com/boson/module/sale/sale_reg.php*
 // @updateURL    https://raw.githubusercontent.com/ZFENGTING/tamper-scripts/main/discount-helper.user.js
@@ -112,6 +112,42 @@
 - 跳过：${skipped} 个
 - 未改：${total - updated - skipped} 个
 - 总数：${total} 个`;
+            }
+        }
+
+        // 添加请求监控
+        const originalFetch = window.fetch;
+        window.fetch = async function(url, options) {
+            if (url.includes('sale_item_reg.php')) {
+                const response = await originalFetch(url, options);
+                if (response.status === 200) {
+                    console.log('✅ 折扣修改请求成功');
+                } else {
+                    console.error('❌ 折扣修改请求失败');
+                }
+                return response;
+            }
+            return originalFetch(url, options);
+        };
+
+        // 创建请求队列
+        const requestQueue = [];
+        let isProcessing = false;
+        const BATCH_SIZE = 5; // 每批处理的请求数量
+
+        async function processQueue() {
+            if (isProcessing || requestQueue.length === 0) return;
+            
+            isProcessing = true;
+            const batch = requestQueue.splice(0, BATCH_SIZE);
+            
+            try {
+                await Promise.all(batch.map(request => request()));
+                console.log(`✅ 成功处理 ${batch.length} 个请求`);
+            } catch (error) {
+                console.error('❌ 批量处理请求失败:', error);
+            } finally {
+                isProcessing = false;
             }
         }
 
@@ -257,42 +293,57 @@
                 progressText.textContent = '';
             }, 3000);
         });
-    }
 
-    function setDiscountValue(cell, value) {
-        return new Promise((resolve) => {
-            const val = parseFloat(value).toFixed(2);
-            
-            if (cell.tagName === 'INPUT') {
-                cell.value = val;
-                // 使用 setTimeout 确保事件按序触发
-                setTimeout(() => {
-                    const changeEvent = new Event('change', { bubbles: true });
-                    cell.dispatchEvent(changeEvent);
-                    
-                    setTimeout(() => {
-                        const inputEvent = new Event('input', { bubbles: true });
-                        cell.dispatchEvent(inputEvent);
-                        
-                        setTimeout(() => {
+        // 修改 setDiscountValue 函数
+        function setDiscountValue(cell, value) {
+            return new Promise((resolve) => {
+                const val = parseFloat(value).toFixed(2);
+                
+                if (cell.tagName === 'INPUT') {
+                    cell.value = val;
+                    // 将请求添加到队列
+                    requestQueue.push(async () => {
+                        try {
+                            const changeEvent = new Event('change', { bubbles: true });
+                            cell.dispatchEvent(changeEvent);
+                            
+                            const inputEvent = new Event('input', { bubbles: true });
+                            cell.dispatchEvent(inputEvent);
+                            
                             const blurEvent = new FocusEvent('blur', { bubbles: true });
                             cell.dispatchEvent(blurEvent);
-                            resolve();
-                        }, 50);
-                    }, 50);
-                }, 50);
-            } else {
-                cell.textContent = val;
-                // 如果是td元素，触发点击事件
-                const clickEvent = new MouseEvent('click', {
-                    bubbles: true,
-                    cancelable: true,
-                    view: window
-                });
-                cell.dispatchEvent(clickEvent);
-                setTimeout(resolve, 50);
-            }
-        });
+                            
+                            // 等待一小段时间确保请求完成
+                            await new Promise(r => setTimeout(r, 100));
+                            resolve(true);
+                        } catch (error) {
+                            console.error('设置折扣失败:', error);
+                            resolve(false);
+                        }
+                    });
+                } else {
+                    cell.textContent = val;
+                    requestQueue.push(async () => {
+                        try {
+                            const clickEvent = new MouseEvent('click', {
+                                bubbles: true,
+                                cancelable: true,
+                                view: window
+                            });
+                            cell.dispatchEvent(clickEvent);
+                            await new Promise(r => setTimeout(r, 100));
+                            resolve(true);
+                        } catch (error) {
+                            console.error('设置折扣失败:', error);
+                            resolve(false);
+                        }
+                    });
+                }
+                
+                // 触发队列处理
+                processQueue();
+            });
+        }
     }
 
     function makeDraggable(el) {
