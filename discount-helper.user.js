@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         折扣自动计算助手 v2.0.20250401
+// @name         折扣自动计算助手 v2.0.20250401.2
 // @copyright    2025, ZFT (https://github.com/ZFENGTING)
 // @namespace    https://github.com/ZFENGTING
-// @version      v2.0.20250401
+// @version      v2.0.20250401.2
 // @description  支持普通页和变体页折扣结构，稳定处理所有商品行
 // @match        http://ns71.bosonapp.com/boson/module/sale/sale_reg.php*
 // @updateURL    https://raw.githubusercontent.com/ZFENGTING/tamper-scripts/main/discount-helper.user.js
