@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         折扣自动计算助手 v2.0.20250401.2
+// @name         折扣自动计算助手 v2.0.20250402
 // @copyright    2025, ZFT (https://github.com/ZFENGTING)
 // @namespace    https://github.com/ZFENGTING
-// @version      v2.0.20250401.2
+// @version      v2.0.20250402
 // @description  支持普通页和变体页折扣结构，稳定处理所有商品行
 // @match        http://ns71.bosonapp.com/boson/module/sale/sale_reg.php*
 // @updateURL    https://raw.githubusercontent.com/ZFENGTING/tamper-scripts/main/discount-helper.user.js
@@ -116,24 +116,33 @@
         }
 
         // 添加请求监控
-        const originalFetch = window.fetch;
-        window.fetch = async function(url, options) {
-            if (url.includes('sale_item_reg.php')) {
-                const response = await originalFetch(url, options);
-                if (response.status === 200) {
-                    console.log('✅ 折扣修改请求成功');
-                } else {
-                    console.error('❌ 折扣修改请求失败');
-                }
-                return response;
-            }
-            return originalFetch(url, options);
+        const originalXHR = window.XMLHttpRequest.prototype.open;
+        window.XMLHttpRequest.prototype.open = function() {
+            const xhr = this;
+            const originalSend = xhr.send;
+            xhr.send = function() {
+                return new Promise((resolve, reject) => {
+                    xhr.addEventListener('load', function() {
+                        if (this.responseURL.includes('sale_item_reg.php')) {
+                            if (this.status === 200) {
+                                console.log('✅ 折扣修改请求成功 (XHR)');
+                                resolve(true);
+                            } else {
+                                console.error('❌ 折扣修改请求失败 (XHR)');
+                                reject(new Error('XHR request failed'));
+                            }
+                        }
+                    });
+                    return originalSend.apply(xhr, arguments);
+                });
+            };
+            return originalXHR.apply(this, arguments);
         };
 
         // 创建请求队列
         const requestQueue = [];
         let isProcessing = false;
-        const BATCH_SIZE = 5; // 每批处理的请求数量
+        const BATCH_SIZE = 1; // 改为1，确保每次只处理一个请求
 
         async function processQueue() {
             if (isProcessing || requestQueue.length === 0) return;
@@ -142,12 +151,18 @@
             const batch = requestQueue.splice(0, BATCH_SIZE);
             
             try {
-                await Promise.all(batch.map(request => request()));
+                for (const request of batch) {
+                    await request();
+                    await new Promise(resolve => setTimeout(resolve, 10)); // 添加100ms延迟
+                }
                 console.log(`✅ 成功处理 ${batch.length} 个请求`);
             } catch (error) {
                 console.error('❌ 批量处理请求失败:', error);
             } finally {
                 isProcessing = false;
+                if (requestQueue.length > 0) {
+                    processQueue(); // 继续处理队列中的下一个请求
+                }
             }
         }
 
@@ -195,7 +210,7 @@
                 }
 
                 // 调试输出
-                console.log('商品描述文本:', descText);
+                //console.log('商品描述文本:', descText);
 
                 // 检查商品代码前缀
                 const isSpecialPrefix = /^(BS|ITG|HI|FM|GU)/.test(productCode);
