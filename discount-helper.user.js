@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         折扣自动计算助手 v2.0.20250402
+// @name         折扣自动计算助手 v2.0.20250403
 // @copyright    2025, ZFT (https://github.com/ZFENGTING)
 // @namespace    https://github.com/ZFENGTING
-// @version      v2.0.20250402
+// @version      v2.0.20250403
 // @description  支持普通页和变体页折扣结构，稳定处理所有商品行
 // @match        http://ns71.bosonapp.com/boson/module/sale/sale_reg.php*
 // @updateURL    https://raw.githubusercontent.com/ZFENGTING/tamper-scripts/main/discount-helper.user.js
@@ -251,7 +251,7 @@
                 let hasUpdates = false;
 
                 // 应用折扣值
-                if (useAmount && !isCrdSet && !isSpecialPrefix && !isNoDiscount) {
+                if (useAmount && !isCrdSet && !isSpecialPrefix && !isNoDiscount && !isForeign) {
                     const currentDiscount = getDiscountValue(amountCell);
                     if (currentDiscount === 0) {
                         await setDiscountValue(amountCell, customDiscount);
