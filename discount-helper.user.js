@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         折扣自动计算助手 v2.0.20250403
+// @name         折扣自动计算助手 v2.0.20250408
 // @copyright    2025, ZFT (https://github.com/ZFENGTING)
 // @namespace    https://github.com/ZFENGTING
-// @version      v2.0.20250403
+// @version      v2.0.20250408
 // @description  支持普通页和变体页折扣结构，稳定处理所有商品行
 // @match        http://ns71.bosonapp.com/boson/module/sale/sale_reg.php*
 // @updateURL    https://raw.githubusercontent.com/ZFENGTING/tamper-scripts/main/discount-helper.user.js
@@ -186,47 +186,30 @@
             let skipped = 0;  // 跳过的商品数量
             let processed = 0; // 已处理数量
 
-            for (const row of rows) {
-                processed++;
-                progressText.textContent = `⏳ 正在处理第 ${processed}/${rows.length} 个商品...`;
-                
+            // 获取所有需要处理的商品信息
+            const products = rows.map(row => {
                 const productCode = row.querySelector('input[name^="product_model"]')?.value || '';
                 
-                // 修改描述文本的获取逻辑
                 let descText = '';
-                // 先尝试获取 input
                 const descInput = row.querySelector('input[name^="product_description"]');
-                // 如果没有 input，尝试获取 td 下的所有 a 标签
                 const descLinks = row.querySelectorAll('td a');
                 
                 if (descInput) {
                     descText = descInput.value?.trim() || '';
                 } else {
-                    // 遍历所有找到的 a 标签，合并它们的文本内容
                     descLinks.forEach(link => {
                         descText += ' ' + (link.textContent?.trim() || '');
                     });
                     descText = descText.trim();
                 }
 
-                // 调试输出
-                //console.log('商品描述文本:', descText);
-
-                // 检查商品代码前缀
                 const isSpecialPrefix = /^(BS|ITG|HI|FM|GU)/.test(productCode);
                 const isForeign = productCode.startsWith('IT') || productCode.startsWith('ES');
                 const isExcluded = descText.includes('特价');
                 const isNoDiscount = descText.includes('无折扣');
                 const isCrdSet = productCode.includes('CRDSET');
-                
-                // 跳过条件更新
-                const skip = isExcluded || 
-                           (isForeign && !useCash) || 
-                           (isCrdSet && useAmount);
 
-                // 尝试抓取折扣位置
                 let amountCell, presaleCell, cashCell;
-
                 const strictCells = Array.from(row.querySelectorAll('td'))
                     .filter(td => td.getAttribute('class') === 'text_right');
 
@@ -238,56 +221,108 @@
                     cashCell = row.querySelector('input[name^="discount_percent_3"]');
                 }
 
-                if (!amountCell || !presaleCell || !cashCell) {
-                    console.warn(`⚠️ 跳过结构不完整商品行: ${row.id}`);
-                    return;
-                }
+                return {
+                    row,
+                    productCode,
+                    isSpecialPrefix,
+                    isForeign,
+                    isExcluded,
+                    isNoDiscount,
+                    isCrdSet,
+                    cells: {
+                        amount: amountCell,
+                        presale: presaleCell,
+                        cash: cashCell
+                    },
+                    skip: isExcluded || (isForeign && !useCash) || (isCrdSet && useAmount)
+                };
+            });
 
-                if (skip) {
-                    skipped++;
-                    continue;
-                }
-
-                let hasUpdates = false;
-
-                // 应用折扣值
-                if (useAmount && !isCrdSet && !isSpecialPrefix && !isNoDiscount && !isForeign) {
-                    const currentDiscount = getDiscountValue(amountCell);
-                    if (currentDiscount === 0) {
-                        await setDiscountValue(amountCell, customDiscount);
-                        hasUpdates = true;
-                    }
-                }
-                if (usePresale && !isSpecialPrefix && !isNoDiscount && !isForeign) {
-                    const currentPresale = getDiscountValue(presaleCell);
-                    if (currentPresale === 0) {
-                        await setDiscountValue(presaleCell, 5);
-                        hasUpdates = true;
-                    }
-                }
-                if (useCash) {
-                    const currentCash = getDiscountValue(cashCell);
-                    if (currentCash === 0) {
-                        let cashDiscountRate = 0;
-                        if (isNoDiscount) {
-                            cashDiscountRate = 3;
-                        } else if (isSpecialPrefix) {
-                            cashDiscountRate = 5;
-                        } else if (isForeign) {
-                            cashDiscountRate = 3;
-                        } else {
-                            cashDiscountRate = 5;
+            try {
+                // 1. 处理所有商品的金额折扣
+                if (useAmount) {
+                    progressText.textContent = '⏳ 正在处理金额折扣...';
+                    for (const product of products) {
+                        if (product.skip || !product.cells.amount || product.isCrdSet || 
+                            product.isSpecialPrefix || product.isNoDiscount || product.isForeign) {
+                            continue;
                         }
-                        await setDiscountValue(cashCell, cashDiscountRate);
-                        hasUpdates = true;
+                        
+                        const currentDiscount = getDiscountValue(product.cells.amount);
+                        if (currentDiscount === 0) {
+                            const success = await setDiscountValue(product.cells.amount, customDiscount);
+                            if (success) {
+                                updated++;
+                                console.log(`✅ 金额折扣应用成功: ${product.row.id}`);
+                            }
+                        }
+                        processed++;
+                        progressText.textContent = `⏳ 金额折扣处理进度: ${processed}/${products.length}`;
+                    }
+                    // 等待所有金额折扣处理完成
+                    await new Promise(r => setTimeout(r, 100));
+                }
+
+                // 2. 处理所有商品的预售折扣
+                if (usePresale) {
+                    processed = 0;
+                    progressText.textContent = '⏳ 正在处理预售折扣...';
+                    for (const product of products) {
+                        if (product.skip || !product.cells.presale || 
+                            product.isSpecialPrefix || product.isNoDiscount || product.isForeign) {
+                            continue;
+                        }
+                        
+                        const currentPresale = getDiscountValue(product.cells.presale);
+                        if (currentPresale === 0) {
+                            const success = await setDiscountValue(product.cells.presale, 5);
+                            if (success) {
+                                updated++;
+                                console.log(`✅ 预售折扣应用成功: ${product.row.id}`);
+                            }
+                        }
+                        processed++;
+                        progressText.textContent = `⏳ 预售折扣处理进度: ${processed}/${products.length}`;
+                    }
+                    // 等待所有预售折扣处理完成
+                    await new Promise(r => setTimeout(r, 100));
+                }
+
+                // 3. 处理所有商品的现金折扣
+                if (useCash) {
+                    processed = 0;
+                    progressText.textContent = '⏳ 正在处理现金折扣...';
+                    for (const product of products) {
+                        if (product.skip || !product.cells.cash) {
+                            continue;
+                        }
+                        
+                        const currentCash = getDiscountValue(product.cells.cash);
+                        if (currentCash === 0) {
+                            let cashDiscountRate = 0;
+                            if (product.isNoDiscount) {
+                                cashDiscountRate = 3;
+                            } else if (product.isSpecialPrefix) {
+                                cashDiscountRate = 5;
+                            } else if (product.isForeign) {
+                                cashDiscountRate = 3;
+                            } else {
+                                cashDiscountRate = 5;
+                            }
+                            
+                            const success = await setDiscountValue(product.cells.cash, cashDiscountRate);
+                            if (success) {
+                                updated++;
+                                console.log(`✅ 现金折扣应用成功: ${product.row.id}`);
+                            }
+                        }
+                        processed++;
+                        progressText.textContent = `⏳ 现金折扣处理进度: ${processed}/${products.length}`;
                     }
                 }
 
-                if (hasUpdates) {
-                    updated++;
-                    progressText.textContent = `⏳ 正在处理第 ${processed}/${rows.length} 个商品...已修改 ${updated} 个`;
-                    await new Promise(resolve => setTimeout(resolve, 10));
-                }
+            } catch (error) {
+                console.error('❌ 处理折扣时发生错误:', error);
             }
 
             // 恢复按钮状态
@@ -313,47 +348,67 @@
         function setDiscountValue(cell, value) {
             return new Promise((resolve) => {
                 const val = parseFloat(value).toFixed(2);
+                let retryCount = 0;
+                const maxRetries = 3;
                 
-                if (cell.tagName === 'INPUT') {
-                    cell.value = val;
-                    // 将请求添加到队列
-                    requestQueue.push(async () => {
-                        try {
-                            const changeEvent = new Event('change', { bubbles: true });
-                            cell.dispatchEvent(changeEvent);
+                const trySetValue = async () => {
+                    try {
+                        if (cell.tagName === 'INPUT') {
+                            cell.value = val;
                             
-                            const inputEvent = new Event('input', { bubbles: true });
-                            cell.dispatchEvent(inputEvent);
+                            // 触发所有必要的事件
+                            const events = ['focus', 'input', 'change', 'blur'];
+                            for (const eventType of events) {
+                                const event = new Event(eventType, { bubbles: true });
+                                cell.dispatchEvent(event);
+                            }
                             
-                            const blurEvent = new FocusEvent('blur', { bubbles: true });
-                            cell.dispatchEvent(blurEvent);
+                            // 等待更长时间确保请求完成
+                            await new Promise(r => setTimeout(r, 200));
                             
-                            // 等待一小段时间确保请求完成
-                            await new Promise(r => setTimeout(r, 100));
-                            resolve(true);
-                        } catch (error) {
-                            console.error('设置折扣失败:', error);
-                            resolve(false);
-                        }
-                    });
-                } else {
-                    cell.textContent = val;
-                    requestQueue.push(async () => {
-                        try {
+                            // 验证值是否被正确设置
+                            if (cell.value === val) {
+                                resolve(true);
+                            } else {
+                                throw new Error('Value not set correctly');
+                            }
+                        } else {
+                            cell.textContent = val;
+                            
+                            // 触发点击事件
                             const clickEvent = new MouseEvent('click', {
                                 bubbles: true,
                                 cancelable: true,
                                 view: window
                             });
                             cell.dispatchEvent(clickEvent);
-                            await new Promise(r => setTimeout(r, 100));
-                            resolve(true);
-                        } catch (error) {
-                            console.error('设置折扣失败:', error);
+                            
+                            // 等待更长时间确保请求完成
+                            await new Promise(r => setTimeout(r, 200));
+                            
+                            // 验证值是否被正确设置
+                            if (cell.textContent === val) {
+                                resolve(true);
+                            } else {
+                                throw new Error('Value not set correctly');
+                            }
+                        }
+                    } catch (error) {
+                        console.error(`设置折扣失败 (尝试 ${retryCount + 1}/${maxRetries}):`, error);
+                        retryCount++;
+                        
+                        if (retryCount < maxRetries) {
+                            // 等待一段时间后重试
+                            setTimeout(trySetValue, 100);
+                        } else {
+                            console.error('设置折扣失败，已达到最大重试次数');
                             resolve(false);
                         }
-                    });
-                }
+                    }
+                };
+                
+                // 将请求添加到队列
+                requestQueue.push(trySetValue);
                 
                 // 触发队列处理
                 processQueue();
@@ -395,3 +450,4 @@
         }
     }
 })();
+
