@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         折扣自动计算助手 v2.1.0 (Customizable)
+// @name         折扣自动计算助手 v2.1.1 (Customizable)
 // @copyright    2025, ZFT (https://github.com/ZFENGTING)
 // @namespace    https://github.com/ZFENGTING
-// @version      v2.1.20250107
+// @version      v2.1.20260922
 // @description  支持普通页和变体页折扣结构，稳定处理所有商品行，支持自定义规则
 // @match        http://ns71.bosonapp.com/boson/module/sale/sale_reg.php*
 // @updateURL    https://raw.githubusercontent.com/ZFENGTING/tamper-scripts/master/discount-helper.user.js
@@ -146,7 +146,7 @@
         panel.innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                 <span style="font-weight:bold;color:#333;">折扣助手</span>
-                <button id="settings_btn" style="cursor:pointer;background:none;border:none;font-size:16px;">⚙️</button>
+                <button type="button" id="settings_btn" style="cursor:pointer;background:none;border:none;font-size:16px;">⚙️</button>
             </div>
             <div><b>💬 备注内容：</b><div style="white-space:pre-wrap;margin:4px 0 10px 0;">${remarkText}</div></div>
             <b>💰 订单金额：</b>${totalAmount.toFixed(2)} EUR，
@@ -155,7 +155,7 @@
             <label><input type="checkbox" id="amount_flag" ${amountChecked}> 应用金额折扣 ${warningText}</label><br/>
             <label><input type="checkbox" id="presale_flag"> 应用预售订单折扣</label><br/>
             <label><input type="checkbox" id="cash_flag"> 应用现金支付折扣</label><br/><br/>
-            <button id="apply_discount_btn" style="width:100%;padding:5px;background:#007bff;color:white;border:none;border-radius:4px;cursor:pointer;">应用折扣</button>
+            <button type="button" id="apply_discount_btn" style="width:100%;padding:5px;background:#007bff;color:white;border:none;border-radius:4px;cursor:pointer;">应用折扣</button>
             <div id="progress_text" style="margin-top:8px;color:#666;font-size:13px;"></div>
         `;
 
@@ -167,9 +167,6 @@
             SettingsUI.open();
         });
 
-        // Initialize Request Queue logic
-        setupRequestQueue();
-
         document.getElementById('apply_discount_btn').addEventListener('click', async () => {
             await applyDiscounts();
         });
@@ -180,21 +177,42 @@
         const btn = document.getElementById('apply_discount_btn');
         const progressText = document.getElementById('progress_text');
 
-        btn.disabled = true;
-        btn.textContent = '处理中...';
-        btn.style.background = '#ccc';
+        if (btn.disabled) return;
 
         const useAmount = document.getElementById('amount_flag')?.checked;
         const usePresale = document.getElementById('presale_flag')?.checked;
         const useCash = document.getElementById('cash_flag')?.checked;
-        const customDiscount = parseFloat(document.getElementById('custom_discount').value) || 0;
+        const customDiscount = Number(document.getElementById('custom_discount').value);
 
         const rows = Array.from(document.querySelectorAll('tr'))
             .filter(row => /^item_hidden_\d+$/.test(row.id));
 
+        const selectedTypes = [
+            useAmount && 'amount', usePresale && 'presale', useCash && 'cash'
+        ].filter(Boolean);
+        if (!selectedTypes.length) {
+            progressText.textContent = '请先勾选要应用的折扣。';
+            return;
+        }
+        if (!rows.length) {
+            progressText.textContent = '未找到商品行，请等待商品加载完成。';
+            return;
+        }
+        const rates = [
+            ...(useAmount ? [customDiscount] : []),
+            ...(usePresale ? [config.presaleDiscount.rate] : []),
+            ...(useCash ? [config.cashDiscount.defaultRate, ...config.cashDiscount.exceptions.map(e => e.rate)] : [])
+        ];
+        if (rates.some(rate => !Number.isFinite(Number(rate)) || Number(rate) < 0 || Number(rate) > 100)) {
+            progressText.textContent = '折扣必须是 0 到 100 之间的数字，请检查折扣配置。';
+            return;
+        }
+
         let updated = 0;
         let skipped = 0;
         let processed = 0;
+        let failed = 0;
+        let errorMessage = '';
 
         // Parse Logic
         const products = rows.map(row => {
@@ -236,23 +254,21 @@
                 if (isMatch) matchedRules.add(rule.id);
             });
 
-            // Cells
-            let amountCell, presaleCell, cashCell;
-            const strictCells = Array.from(row.querySelectorAll('td')).filter(td => td.getAttribute('class') === 'text_right');
-            if (strictCells.length >= 3) {
-                [amountCell, presaleCell, cashCell] = strictCells;
-            } else {
-                amountCell = row.querySelector('input[name^="discount_percent_1"]');
-                presaleCell = row.querySelector('input[name^="discount_percent_2"]');
-                cashCell = row.querySelector('input[name^="discount_percent_3"]');
-            }
-
             return {
                 row,
                 matchedRules,
-                cells: { amount: amountCell, presale: presaleCell, cash: cashCell }
+                cells: getDiscountInputs(row)
             };
         });
+
+        if (products.some(p => selectedTypes.some(type => !isEditableDiscountInput(p.cells[type])))) {
+            progressText.textContent = '部分商品缺少可编辑的折扣输入框，已停止。请确认单据未审核、商品已加载且有编辑权限。';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = '处理中...';
+        btn.style.background = '#ccc';
 
         try {
             // Priority: Amount -> Presale -> Cash
@@ -269,9 +285,10 @@
                     }
 
                     const val = getDiscountValue(p.cells.amount);
-                    if (val === 0) {
+                    if (val === 0 && customDiscount > 0) {
                         const success = await setDiscountValue(p.cells.amount, customDiscount);
                         if (success) updated++;
+                        else failed++;
                     }
                     processed++;
                     progressText.textContent = `⏳ 金额折扣: ${processed}/${products.length}`;
@@ -288,9 +305,10 @@
                     if (shouldSkip || !p.cells.presale) continue;
 
                     const val = getDiscountValue(p.cells.presale);
-                    if (val === 0) {
+                    if (val === 0 && Number(config.presaleDiscount.rate) > 0) {
                         const success = await setDiscountValue(p.cells.presale, config.presaleDiscount.rate);
                         if (success) updated++;
+                        else failed++;
                     }
                     processed++;
                     progressText.textContent = `⏳ 预售折扣: ${processed}/${products.length}`;
@@ -318,8 +336,10 @@
                             }
                         }
 
+                        if (Number(rate) === 0) continue;
                         const success = await setDiscountValue(p.cells.cash, rate);
                         if (success) updated++;
+                        else failed++;
                     }
                     processed++;
                     progressText.textContent = `⏳ 现金折扣: ${processed}/${products.length}`;
@@ -328,21 +348,22 @@
 
         } catch (e) {
             console.error(e);
+            errorMessage = e.message;
             alert('处理出错: ' + e.message);
         }
 
         btn.disabled = false;
         btn.textContent = '应用折扣';
         btn.style.background = '#007bff';
-        progressText.textContent = `✅ 处理完成！修改: ${updated}, 跳过(金额): ${skipped}`;
+        progressText.textContent = errorMessage
+            ? `处理已中断：${errorMessage}。已填写 ${updated} 项，请刷新核对。`
+            : `已填写: ${updated}, 未写入: ${failed}, 跳过(金额): ${skipped}。已填写项已触发网站保存，请刷新核对结果。`;
 
         // Update result display
         const lastResult = document.getElementById('last_result');
         if (lastResult) {
-            lastResult.innerHTML = `📊 最近：修改 ${updated} | 跳过 ${skipped} | 总计 ${rows.length}`;
+            lastResult.textContent = `最近：已填写 ${updated} | 未写入 ${failed} | 跳过 ${skipped} | 总计 ${rows.length}`;
         }
-
-        setTimeout(() => progressText.textContent = '', 3000);
     }
 
     // --- Settings UI ---
@@ -639,23 +660,20 @@
     let requestQueue = [];
     let isProcessing = false;
 
-    function setupRequestQueue() {
-        const originalXHR = window.XMLHttpRequest.prototype.open;
-        window.XMLHttpRequest.prototype.open = function () {
-            const xhr = this;
-            const originalSend = xhr.send;
-            xhr.send = function () {
-                return new Promise((resolve, reject) => {
-                    xhr.addEventListener('load', function () {
-                        if (this.responseURL.includes('sale_item_reg.php')) {
-                            if (this.status === 200) resolve(true);
-                        }
-                    });
-                    return originalSend.apply(xhr, arguments);
-                });
-            };
-            return originalXHR.apply(this, arguments);
+    function getDiscountInputs(row) {
+        // Field names remain stable when price columns move or share CSS classes.
+        return {
+            amount: row.querySelector('input[name^="discount_percent_1["]'),
+            presale: row.querySelector('input[name^="discount_percent_2["]'),
+            cash: row.querySelector('input[name^="discount_percent_3["]')
         };
+    }
+
+    function isEditableDiscountInput(input) {
+        return !!input && input.tagName === 'INPUT' &&
+            /^discount_percent_[123]\[\d+\]$/.test(input.name) &&
+            ['text', 'number'].includes(input.type) &&
+            !input.disabled && !input.readOnly && !input.matches(':disabled') && input.isConnected;
     }
 
     // Process helper
@@ -673,21 +691,19 @@
     }
 
     function setDiscountValue(cell, value) {
+        const rate = Number(value);
+        if (!Number.isFinite(rate) || rate < 0 || rate > 100) return Promise.resolve(false);
         return new Promise((resolve) => {
-            const val = parseFloat(value).toFixed(2);
+            const val = rate.toFixed(2);
             requestQueue.push(async () => {
                 let success = false;
                 try {
-                    if (cell.tagName === 'INPUT') {
+                    if (isEditableDiscountInput(cell) && getDiscountValue(cell) === 0 && rate > 0) {
                         cell.value = val;
-                        ['focus', 'input', 'change', 'blur'].forEach(e => cell.dispatchEvent(new Event(e, { bubbles: true })));
+                        // Boson saves and recalculates on input; never rewrite a display cell.
+                        cell.dispatchEvent(new Event('input', { bubbles: true }));
                         await new Promise(r => setTimeout(r, 200));
-                        if (cell.value === val) success = true;
-                    } else {
-                        cell.textContent = val;
-                        cell.dispatchEvent(new MouseEvent('click', { bubbles: true, view: window }));
-                        await new Promise(r => setTimeout(r, 200));
-                        if (cell.textContent === val) success = true;
+                        if (cell.isConnected && Number(cell.value) === rate) success = true;
                     }
                 } catch (e) { console.error(e); }
                 resolve(success);
@@ -697,8 +713,7 @@
     }
 
     function getDiscountValue(cell) {
-        if (cell.tagName === 'INPUT') return parseFloat(cell.value) || 0;
-        return parseFloat(cell.textContent) || 0;
+        return isEditableDiscountInput(cell) ? Number(cell.value.trim()) : NaN;
     }
 
     function makeDraggable(el) {
