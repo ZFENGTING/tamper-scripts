@@ -2,7 +2,7 @@
 // @name         折扣自动计算助手 v2.1.1 (Customizable)
 // @copyright    2025, ZFT (https://github.com/ZFENGTING)
 // @namespace    https://github.com/ZFENGTING
-// @version      v2.1.20260922
+// @version      v2.1.20260925
 // @description  支持普通页和变体页折扣结构，稳定处理所有商品行，支持自定义规则
 // @match        http://ns71.bosonapp.com/boson/module/sale/sale_reg.php*
 // @updateURL    https://raw.githubusercontent.com/ZFENGTING/tamper-scripts/master/discount-helper.user.js
@@ -10,10 +10,25 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
+// @connect      127.0.0.1
 // ==/UserScript==
 
 (function () {
     'use strict';
+
+    // #region debug-point A:session
+    if (typeof GM_xmlhttpRequest === 'function') GM_xmlhttpRequest({ method: 'POST', url: 'http://127.0.0.1:7777/event', data: JSON.stringify({ sessionId: 'discount-save-event', runId: 'pre-fix', hypothesisId: 'A', location: 'userscript:start', msg: '[DEBUG] diagnostic started', data: { pageSaveFunction: typeof window.documentItemEdit }, ts: Date.now() }), onerror: () => {} });
+    // #endregion
+    // #region debug-point B:events
+    if (typeof GM_xmlhttpRequest === 'function') ['focus', 'input', 'change', 'blur'].forEach(type => document.addEventListener(type, event => { const input = event.target; if (!/^discount_percent_[123]\[\d+\]$/.test(input.name || '')) return; GM_xmlhttpRequest({ method: 'POST', url: 'http://127.0.0.1:7777/event', data: JSON.stringify({ sessionId: 'discount-save-event', runId: 'pre-fix', hypothesisId: 'B', location: 'document:event', msg: '[DEBUG] discount event observed', data: { field: input.name, type: event.type, trusted: event.isTrusted, connected: input.isConnected, inputHandler: !!input.getAttribute('oninput'), changeHandler: !!input.getAttribute('onchange'), blurHandler: !!input.getAttribute('onblur') }, ts: Date.now() }), onerror: () => {} }); }, true));
+    // #endregion
+    // #region debug-point C:errors
+    if (typeof GM_xmlhttpRequest === 'function') window.addEventListener('error', event => GM_xmlhttpRequest({ method: 'POST', url: 'http://127.0.0.1:7777/event', data: JSON.stringify({ sessionId: 'discount-save-event', runId: 'pre-fix', hypothesisId: 'C', location: 'window:error', msg: '[DEBUG] browser error', data: { message: String(event.message).slice(0, 250), line: event.lineno }, ts: Date.now() }), onerror: () => {} }));
+    // #endregion
+    // #region debug-point A:requests
+    if (typeof GM_xmlhttpRequest === 'function' && typeof PerformanceObserver === 'function') new PerformanceObserver(list => list.getEntries().filter(entry => /\/sale_item_reg\.php(?:[?#]|$)/.test(entry.name)).forEach(entry => GM_xmlhttpRequest({ method: 'POST', url: 'http://127.0.0.1:7777/event', data: JSON.stringify({ sessionId: 'discount-save-event', runId: 'pre-fix', hypothesisId: 'A', location: 'performance:resource', msg: '[DEBUG] save request completed', data: { initiator: entry.initiatorType, duration: entry.duration, status: entry.responseStatus }, ts: Date.now() }), onerror: () => {} }))).observe({ entryTypes: ['resource'] });
+    // #endregion
 
     // --- Configuration Management ---
     const DEFAULT_CONFIG = {
@@ -691,6 +706,9 @@
     }
 
     function setDiscountValue(cell, value) {
+        // #region debug-point D:write
+        if (typeof GM_xmlhttpRequest === 'function') GM_xmlhttpRequest({ method: 'POST', url: 'http://127.0.0.1:7777/event', data: JSON.stringify({ sessionId: 'discount-save-event', runId: 'pre-fix', hypothesisId: 'D', location: 'setDiscountValue:entry', msg: '[DEBUG] write requested', data: { field: cell?.name, connected: cell?.isConnected, currentNode: cell === document.getElementById(cell?.id), editable: isEditableDiscountInput(cell), zero: getDiscountValue(cell) === 0, validRate: Number.isFinite(Number(value)) && Number(value) > 0 && Number(value) <= 100 }, ts: Date.now() }), onerror: () => {} });
+        // #endregion
         const rate = Number(value);
         if (!Number.isFinite(rate) || rate < 0 || rate > 100) return Promise.resolve(false);
         return new Promise((resolve) => {
@@ -700,9 +718,14 @@
                 try {
                     if (isEditableDiscountInput(cell) && getDiscountValue(cell) === 0 && rate > 0) {
                         cell.value = val;
-                        // Boson saves and recalculates on input; never rewrite a display cell.
-                        cell.dispatchEvent(new Event('input', { bubbles: true }));
+                        // Preserve the original event sequence for the site's save handlers.
+                        ['focus', 'input', 'change', 'blur'].forEach(type => {
+                            cell.dispatchEvent(new Event(type, { bubbles: true }));
+                        });
                         await new Promise(r => setTimeout(r, 200));
+                        // #region debug-point D:after
+                        if (typeof GM_xmlhttpRequest === 'function') GM_xmlhttpRequest({ method: 'POST', url: 'http://127.0.0.1:7777/event', data: JSON.stringify({ sessionId: 'discount-save-event', runId: 'pre-fix', hypothesisId: 'D', location: 'setDiscountValue:after', msg: '[DEBUG] after dispatch', data: { field: cell.name, connected: cell.isConnected, valueMatches: Number(cell.value) === rate }, ts: Date.now() }), onerror: () => {} });
+                        // #endregion
                         if (cell.isConnected && Number(cell.value) === rate) success = true;
                     }
                 } catch (e) { console.error(e); }
